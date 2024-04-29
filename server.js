@@ -20,10 +20,7 @@ const Author = mongoose.model('author' , authorSchema)
 const bookSchema = mongoose.Schema({
     bookName : String,
     yearPublished : Number,
-    genr : {
-        type : String,
-        enum : ['Fiction' , 'Non-fiction' , 'Mystery' , 'Fantasy' , 'Romance' , 'Historical ' , 'Horror']
-    },
+    genr : String,
     author : {
         type : mongoose.Schema.Types.ObjectId,
         ref : 'author'
@@ -42,9 +39,9 @@ const joiSchemaBook = Joi.object({
     bookName : Joi.string().min(3).max(20).required(),
     yearPublished : Joi.number().min(1500).max(2024).required(),
     genr : Joi.string().min(6).max(10).required(),
-    author : Joi.alternatives.try(
-        Joi.string,
-        Joi.object
+    author : Joi.alternatives().try(
+        Joi.string(),
+        Joi.object()
     ).required()
 })
 
@@ -54,7 +51,7 @@ function objectIdvalidate(id){
     return mongoose.Types.ObjectId.isValid(id)
 }
 
-app.use(express.JSON())
+app.use(express.json())
 
 app.get('/authors' , async (req , res) => {
     const authors = await Author.find()
@@ -75,8 +72,8 @@ app.post('/authors' , async (req , res) => {
 
 app.get('/authors/:id' , async (req , res) => {
     if(!objectIdvalidate(req.params.id))return res.status(400).send(`id must be valid id`)
-    const author = await Author.findById(req.body.id)
-    if(!author) return res.status(404),send(`author not found try with correct id`)
+    const author = await Author.findById(req.params.id)
+    if(!author) return res.status(404).send(`author not found try with correct id`)
     res.send(author)
 })
 
@@ -88,8 +85,14 @@ const putJoiSchema = Joi.object({
 
 app.put('/authors/:id' , async (req, res) => {
     if(!objectIdvalidate(req.params.id))return res.status(400).send(`id must be valid id`)
-    const author = await Author.findById(req.body.id)
-    if(!author) return res.status(404),send(`author not found try with correct id`)
+
+    //check the if body dont have property or user send nothing
+    const property = ['name' , 'lastName' , 'age']
+    const a = property.filter(prop => !(prop in req.body));
+    if(a.length > 2) return res.status(400).send(`send the value of the property you want to update`)
+
+    const author = await Author.findById(req.params.id)
+    if(!author) return res.status(404).send(`author not found try with correct id`)
     const {error} = putJoiSchema.validate(req.body)
     if(error) return res.status(400).send(error.details[0].message)
     if(req.body.name) author.name = req.body.name
@@ -103,7 +106,7 @@ app.delete('/authors/:id' , async (req , res) => {
     if(!objectIdvalidate(req.params.id)) return res.status(400).send(`id is not valid id please send the valid id`)
     const author = Author.findByIdAndDelete(req.params.id) 
     if(!author) return res.status(404).send(`id not found please check the id you send`)
-    res.send(`author deleted successfully and this is the author lastName : ${author.lastName}`)
+    res.send(`author deleted successfully and this was the author id : ${req.params.id}`)
 })
 
 app.get('/books' , async (req , res) => {
@@ -112,12 +115,21 @@ app.get('/books' , async (req , res) => {
 })
 
 
-app.post('books' , async (req, res) => {
-    if(!objectIdvalidate(req.body.author)){//if user dont send the object id of the author instead send object to create new author
-        const {error} = joiSchemaAuthor.validate(req.body.author)
-        if(error)return res.status(400).send(error.details[0].message)
+app.post('/books' , async (req, res) => {
+    const book = await Book.find({bookName : req.body.bookName , yearPublished : req.body.yearPublished})
+    if(!book.length == 0)return res.status(400).send(`book is already exist`)
+
+    if (!objectIdvalidate(req.body.author) && typeof req.body.author === 'string') return res.status(400).send(`please write the valid id`);
+    if (!objectIdvalidate(req.body.author) && typeof req.body.author === 'object') { //if user dont send the object id of the author instead send object to create new author
+        let {error: error1} = joiSchemaBook.validate(req.body);
+        if (error1) return res.status(400).send(error1.details[0].message);
+
+        let {error: error2} = joiSchemaAuthor.validate(req.body.author);
+        if (error2) return res.status(400).send(error2.details[0].message);
+
         const authorInDB = await Author.find({name : req.body.author.name , lastName : req.body.author.lastName})
-        if(authorInDB) return res.status(400).send(`author is already exist please send the correct author id`)
+        if(!authorInDB.length == 0) return res.status(400).send(`author is already exist please send the correct author id`)
+
         const author = new Author({
             name : req.body.author.name,
             lastName : req.body.author.lastName,
@@ -135,7 +147,7 @@ app.post('books' , async (req, res) => {
         res.send(result)
     }else{
         const {error} = joiSchemaBook.validate(req.body)
-        if(error)res.status(400).send(error.details[0].message)
+        if(error) return res.status(400).send(error.details[0].message)
         const book = new Book({
             bookName : req.body.bookName,
             yearPublished : req.body.yearPublished,
@@ -151,7 +163,7 @@ app.post('books' , async (req, res) => {
 app.get('/books/:id' , async (req , res) => {
      if(!objectIdvalidate(req.params.id))return res.status(400).send(`bad request : please send a valid id`)
      const book = await Book.findById(req.params.id).populate('author')
-     if (!book) return res.status(404).send(`book not found`)
+     if (!book) return res.status(404).send(`book not found please write the correct id`)
      res.send(book)
 })
 
@@ -159,38 +171,49 @@ const putBookValidate = Joi.object({
     bookName : Joi.string().min(3).max(20),
     yearPublished : Joi.number().min(1500).max(2024),
     genr : Joi.string().min(6).max(10),
-    author : Joi.alternatives.try(
-        Joi.string,
-        Joi.object
+    author : Joi.alternatives().try(
+        Joi.string(),
+        Joi.object()
     )
 })
-function checkvalue(x){
-    const value = ['Fiction' , 'Non-fiction' , 'Mystery' , 'Fantasy' , 'Romance' , 'Historical ' , 'Horror']
-    const exist = value.find(val => val === x)
-    if(exist)return true;
-    else return false;
-}
+
+
 app.put('/books/:id' , async (req , res) => {
+    
     if(!objectIdvalidate(req.params.id)) return res.status(400).send(`please send the valid id`)
+
     const book = await Book.findById(req.params.id)
+    console.log(book)
     if(!book) return res.status(404).send(`book not found`)
-    const {error} = putBookValidate(req.body)
+
+    const {error} = putBookValidate.validate(req.body)
     if(error)return res.status(400).send(error.details[0].message)
+
+    const property = ['bookName' , 'yearPublished' , 'genr' , 'author']
+    const a = property.filter(prop => !(prop in req.body));
+    if(a.length > 3) return res.status(400).send(`send the value of the property you want to update`)
+
     if(req.body.bookName) book.bookName = req.body.bookName
     if(req.body.yearPublished) book.yearPublished = req.body.yearPublished
-    if(checkvalue(req.body.genr)) book.genr = req.body.genr
+    if(req.body.genr) book.genr = req.body.genr
     if(req.body.author){
-        if(objectIdvalidate(req.body.author)) book.author = req.body.author
-        else{
-        const {error} = joiSchemaAuthor.validate(req.body.author)
+
+        if (!objectIdvalidate(req.body.author) && typeof req.body.author === 'string') return res.status(400).send(`please write the valid id`);
+        if (objectIdvalidate(req.body.author)) book.author = req.body.author
+        if (typeof req.body.author === 'object'){
+            
+        let {error} = joiSchemaAuthor.validate(req.body.author)
         if(error)return res.status(400).send(error.details[0].message)
+
         const authorInDB = await Author.find({name : req.body.author.name , lastName : req.body.author.lastName})
-        if(authorInDB) return res.status(400).send(`author is already exist please send the correct author id`)
+        if(authorInDB.length > 0) return res.status(400).send(`author is already exist please send the correct author id`)
+
         const author = new Author({
             name : req.body.author.name,
             lastName : req.body.author.lastName,
             age : req.body.author.age
         })
+
         const resultAuthor = await author.save()
         book.author = resultAuthor._id            
         }
@@ -206,3 +229,8 @@ app.delete('/books/:id' , async (req , res) => {
     if(!book) return res.status(404).send(`with givin id book not found in the data base`)
     res.send(`book delet successfully and book deleted was ${book.bookName}`)
 })
+
+
+const PORT = process.env.PORT || 3000
+
+app.listen(PORT , () =>  console.log(`listening to the port : ${PORT}`))
