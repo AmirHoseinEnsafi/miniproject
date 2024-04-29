@@ -50,11 +50,11 @@ router.post('/' , async (req, res) => {
         result = await result.populate('author')
         res.send(result)
     }else{        
-        const author = await Author.findById(req.body.author)
-        if(!author) return res.status(400).send(`givin id in author is not exist for eny of the authors please send the existing id`)
-
         const {error} = joiSchemaBook.validate(req.body)
         if(error) return res.status(400).send(error.details[0].message)
+        
+        const author = await Author.findById(req.body.author)
+        if(!author) return res.status(400).send(`givin id in author is not exist for eny of the authors please send the existing id`)
 
         const book = new Book({
             bookName : req.body.bookName,
